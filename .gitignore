@@ -1,0 +1,10 @@
+bin/
+build/
+*.out
+*.prof
+*.test
+*.coverprofile
+coverprofile
+/.coverage
+coverage.txt
+.vscode*

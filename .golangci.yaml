@@ -1,0 +1,163 @@
+version: '2'
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - errorlint
+    - errname
+    - errchkjson
+    - sqlclosecheck
+    - gosec
+    - asasalint
+    - gocheckcompilerdirectives
+    - perfsprint
+    - prealloc
+    - makezero
+    - mirror
+    - bodyclose
+    - noctx
+    - cyclop
+    - gocognit
+    - nakedret
+    - gocritic
+    - revive
+    - unparam
+    - exhaustive
+    - copyloopvar
+    - intrange
+    - modernize
+    - sloglint
+    - loggercheck
+    - misspell
+    - gochecksumtype
+    - testifylint # assume project uses testify
+    - durationcheck
+    - wrapcheck
+    - unconvert
+    - ireturn
+    - iface
+    - fatcontext
+    - lll
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+    gosec:
+      excludes:
+        - G103
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true # use unused instead
+        - name: line-length-limit
+          disabled: true # use lll instead
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+    gocognit:
+      min-complexity: 20
+    cyclop:
+      max-complexity: 10
+    unparam:
+      check-exported: true
+    sloglint:
+      kv-only: true
+    testifylint:
+      enable-all: true
+    lll:
+      tab-width: 4
+  exclusions:
+    generated: lax
+    warn-unused: true
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - gocognit
+          - errcheck
+          - cyclop
+          - wrapcheck
+          - lll
+      - linters:
+          - lll
+        source: '^//go:generate '
+formatters:
+  enable:
+    - gofumpt
+    - gci
+    - goimports
+    - golines
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/org/project) # modify prefix as needed
+        - blank
+        - dot
+        - alias
+        - localmodule
+      no-inline-comments: true
+      no-prefix-comments: true
+      custom-order: true
+    gofumpt:
+      extra-rules: true
+    golines:
+      max-len: 100
+      shorten-comments: true
+  exclusions:
+    warn-unused: true
+    generated: lax
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
+  path-mode: abs
+  sort-order:
+    - severity
+    - linter
+    - file
+  show-stats: true
+run:
+  go: '1.26'
+  relative-path-mode: gomod
+  modules-download-mode: readonly
+  enable-build-vcs: true
+  allow-parallel-runners: true
+  allow-serial-runners: true
+severity:
+  default: error
+  rules:
+    - linters:
+        - revive
+        - gocritic
+        - misspell
+        - lll
+      severity: warning
+    - linters:
+        - gosec
+        - errcheck
+        - staticcheck
+        - nilerr
+      severity: error

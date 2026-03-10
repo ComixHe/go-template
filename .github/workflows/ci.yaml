@@ -1,0 +1,66 @@
+name: Continuous integration
+
+on:
+  push:
+  pull_request:
+    branches: ['main']
+
+jobs:
+  compliance:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: REUSE Compliance Check
+        uses: fsfe/reuse-action@v6
+
+  lint:
+    name: Lint & Security
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=10m --out-format=text:stdout,sarif:results.sarif
+          only-new-issues: true
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: results.sarif
+
+  pipeline:
+    name: Pipeline on Ubuntu
+    needs: [compliance, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: true
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Tests
+        run: task test:race
+      - name: Upload Coverage to codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.txt
+          verbose: true
+          # token: ${{ secrets.CODECOV_TOKEN }} # required for private repos
+      - name: Build All Binaries
+        run: task build:all

@@ -1,0 +1,61 @@
+version: 2
+project_name: '{{ .ProjectName }}'
+
+# if project have multiple binaries, you can configure them here
+builds:
+  - id: default
+    main: ./cmd/{{ .ProjectName }}
+    binary: '{{ .ProjectName }}'
+    env: &build_defaults_env
+      - CGO_ENABLED=0 # default to disabled CGO
+    goos: &build_defaults_os
+      - linux
+    goarch: &build_defaults_arch
+      - amd64
+      - arm64
+      - riscv64
+    goamd64: &build_defaults_amd64
+      - v3
+      - v4
+    goarm64: &build_defaults_arm64
+      - v8.0
+      - v9.0
+    flags: &build_defaults_flags
+      - -v
+      - -trimpath
+      - -buildmode=pie
+    ldflags: &build_defaults_ldflags
+      - -s
+      - -w
+      - -X {{ .ModulePath }}/internal/metadata.AppName={{ .ID }}
+      - -X {{ .ModulePath }}/internal/metadata.Version=v{{ .Version }}
+      - -X {{ .ModulePath }}/internal/metadata.Commit={{ .FullCommit }}
+      - -X {{ .ModulePath }}/internal/metadata.BuildDate={{ .Date }}
+
+archives:
+  - formats: ['tar.gz']
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - LICENSE*
+      - README*
+      - configs/*
+      - init/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+
+sboms:
+  - artifacts: archive
+    documents:
+      - '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.spdx.json'
+
+release:
+  github:
+    owner: '{{ .Env.GITHUB_REPOSITORY_OWNER }}'
+    name: '{{ .ProjectName }}'
+  draft: false
+  prerelease: auto
