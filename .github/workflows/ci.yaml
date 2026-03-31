@@ -59,7 +59,7 @@ jobs:
       - name: Run Tests
         run: task test:race
       - name: Upload Coverage to codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           file: ./coverage.txt
           verbose: true
