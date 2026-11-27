@@ -1,0 +1,15 @@
+# Normalize line endings, keeps `gofmt`/golangci-lint reproducible across platforms.
+* text=auto eol=lf
+
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.zip binary
+*.gz binary
+*.tar binary

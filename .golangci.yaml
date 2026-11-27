@@ -1,100 +1,138 @@
 version: '2'
+
 linters:
+  default: none
   enable:
+    # Correctness: the golangci-lint standard set.
     - errcheck
     - govet
-    - staticcheck
     - ineffassign
+    - staticcheck
     - unused
+
+    # Errors: wrapped, compared and returned correctly.
+    - errorlint
     - nilerr
     - nilnesserr
     - nilnil
-    - errorlint
-    - errname
-    - errchkjson
-    - sqlclosecheck
-    - gosec
-    - asasalint
-    - gocheckcompilerdirectives
-    - perfsprint
-    - prealloc
-    - makezero
-    - mirror
+    - wrapcheck
+
+    # Context and resources.
     - bodyclose
     - noctx
-    - cyclop
-    - gocognit
-    - nakedret
-    - gocritic
-    - revive
-    - unparam
-    - exhaustive
-    - copyloopvar
-    - intrange
-    - modernize
-    - sloglint
-    - loggercheck
-    - misspell
-    - gochecksumtype
-    - testifylint # assume project uses testify
-    - durationcheck
-    - wrapcheck
-    - unconvert
-    - ireturn
-    - iface
+    - contextcheck
     - fatcontext
-    - lll
+    - containedctx
+
+    # Silent bug patterns.
+    - durationcheck
+    - makezero
+    - musttag
+    - mirror
+    - exhaustive
+    - unconvert
+
+    # Narrow but zero-noise correctness checks.
+    - gocheckcompilerdirectives
+    - iotamixing
+
+    # Performance: avoid unnecessary allocations and slow formatting.
+    - prealloc
+    - perfsprint
+
+    # Modern Go idioms
+    - exptostd
+    - modernize
+    - usestdlibvars
+    - usetesting
+
+    # Security.
+    - gosec
+    - bidichk
+
+    # API and readability.
+    - revive
+    - gocritic
+    - gocognit
+    - misspell
+    - unparam
+    - godoclint
+    - recvcheck
+    - inamedparam
+    - gochecknoinits
+
+    # Tests.
+    - testpackage
+    - thelper
+
+    # Lint hygiene: no bare, unused or unexplained //nolint directives.
+    - nolintlint
+
   settings:
     errcheck:
       check-type-assertions: true
       check-blank: true
+
     govet:
       enable-all: true
+      disable:
+        - fieldalignment
+
     gosec:
       excludes:
-        - G103
+        # G104 ("Errors unhandled") duplicates errcheck, which is stricter and
+        # more precise.
+        - G104
+
     revive:
+      # Listing rules replaces revive's default set, so keep the defaults
+      # explicitly instead of silently disabling everything.
+      enable-default-rules: true
       rules:
-        - name: unused-parameter
-          disabled: true # use unused instead
-        - name: line-length-limit
-          disabled: true # use lll instead
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+
     gocritic:
+      # Bug-finding checks only. Style and performance suggestions overlap
+      # staticcheck and produce noise.
+      disable-all: true
       enabled-tags:
         - diagnostic
-        - style
-        - performance
-        - opinionated
+
     gocognit:
-      min-complexity: 20
-    cyclop:
-      max-complexity: 10
-    unparam:
-      check-exported: true
-    sloglint:
-      kv-only: true
-    testifylint:
-      enable-all: true
-    lll:
-      tab-width: 4
+      min-complexity: 15
+
+    exhaustive:
+      # A switch with a default branch is considered exhaustive.
+      default-signifies-exhaustive: true
+
+    godoclint:
+      enable:
+        # Require docs on exported symbols and on every package. This replaces
+        # revive's exported/package-comments rules with a newer implementation.
+        - require-doc
+        - require-pkg-doc
+      options:
+        require-doc:
+          ignore-exported: false
+          ignore-unexported: true
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
   exclusions:
-    generated: lax
-    warn-unused: true
-    presets:
-      - std-error-handling
-      - common-false-positives
+    # Only skip files with the canonical "Code generated ... DO NOT EDIT." header.
+    generated: strict
     rules:
       - path: _test\.go
         linters:
-          - gosec
-          - gocognit
-          - errcheck
-          - cyclop
-          - wrapcheck
-          - lll
-      - linters:
-          - lll
-        source: '^//go:generate '
+          - godoclint
+        text: 'symbol should have a godoc'
+
 formatters:
   enable:
     - gofumpt
@@ -102,62 +140,26 @@ formatters:
     - goimports
     - golines
   settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/org/project) # modify prefix as needed
-        - blank
-        - dot
-        - alias
         - localmodule
-      no-inline-comments: true
-      no-prefix-comments: true
       custom-order: true
-    gofumpt:
-      extra-rules: true
     golines:
-      max-len: 100
-      shorten-comments: true
+      max-len: 120
   exclusions:
-    warn-unused: true
-    generated: lax
+    generated: strict
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   uniq-by-line: false
-output:
-  formats:
-    text:
-      path: stdout
-      print-linter-name: true
-      print-issued-lines: true
-      colors: true
-  path-mode: abs
-  sort-order:
-    - severity
-    - linter
-    - file
-  show-stats: true
+
 run:
-  go: '1.26'
   relative-path-mode: gomod
   modules-download-mode: readonly
-  enable-build-vcs: true
-  allow-parallel-runners: true
-  allow-serial-runners: true
-severity:
-  default: error
-  rules:
-    - linters:
-        - revive
-        - gocritic
-        - misspell
-        - lll
-      severity: warning
-    - linters:
-        - gosec
-        - errcheck
-        - staticcheck
-        - nilerr
-      severity: error

@@ -7,7 +7,7 @@ SPDX-FileCopyrightText = "2026 He YuMing <ComixHe1895@outlook.com>"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
-path = ["**/*.md", ".editorconfig", ".gitignore"]
+path = ["**/*.md", ".editorconfig", ".gitignore", ".gitattributes"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 He YuMing <ComixHe1895@outlook.com>"
 SPDX-License-Identifier = "CC-BY-4.0"
@@ -15,6 +15,7 @@ SPDX-License-Identifier = "CC-BY-4.0"
 [[annotations]]
 path = [
 	".github/workflows/*.yaml",
+	".github/workflows/actions.lock",
 	".github/dependabot.yaml",
 	".golangci.yaml",
 	".goreleaser.yaml",

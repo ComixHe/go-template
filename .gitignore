@@ -1,5 +1,7 @@
 bin/
+dist/
 build/
+.task/
 *.out
 *.prof
 *.test
@@ -7,4 +9,6 @@ build/
 coverprofile
 /.coverage
 coverage.txt
+coverage.html
+*.sarif
 .vscode*
