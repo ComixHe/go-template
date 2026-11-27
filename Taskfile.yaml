@@ -1,146 +1,216 @@
 version: '3'
+
+# Respect .gitignore when expanding sources/generates globs.
+use_gitignore: true
+
 vars:
   PROJECT_NAME:
-    sh: basename {{.USER_WORKING_DIR}}
+    sh: basename "{{.USER_WORKING_DIR}}"
   GIT_COMMIT:
-    sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
   GIT_DESCRIBE:
-    sh: git describe --tags --match v* --long --dirty 2>/dev/null || echo "v0.0.0-0-gunknown"
-  BUILD_DATE:
-    sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
+    sh: git describe --tags --match 'v*' --long --dirty 2>/dev/null || echo v0.0.0-0-gunknown
+  # v1.2.3-4-gabc123-dirty -> 1.2.3+4.abc123.dirty
   SEMVER:
     sh: |
       printf '%s\n' "{{.GIT_DESCRIBE}}" | sed \
-        -e 's/-\([[:digit:]]\+\)-g/+\1\./' \
-        -e 's/-dirty$$/\.dirty/' \
-        -e 's/+0\.[^\.]\+\.\?/+/' \
+        -e 's/-\([0-9]\+\)-g/+\1./' \
+        -e 's/-dirty$/.dirty/' \
+        -e 's/+0\.[^.]*\.\?/+/' \
         -e 's/^v//' \
-        -e 's/+$$//'
+        -e 's/+$//'
   MODULE_PATH:
     sh: go list -m 2>/dev/null || echo "github.com/user/{{.PROJECT_NAME}}"
   METADATA_PKG: '{{.MODULE_PATH}}/internal/metadata'
-  GO_BUILD_FLAGS: -v -trimpath -buildmode=pie
+  # Default application: the first directory found under cmd/.
+  DEFAULT_APP:
+    sh: find cmd -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort | head -n1
+  GO_BUILD_FLAGS: -trimpath
   LDFLAGS: >-
-    -s
-    -w
     -X '{{.METADATA_PKG}}.Version=v{{.SEMVER}}'
     -X '{{.METADATA_PKG}}.Commit={{.GIT_COMMIT}}'
-    -X '{{.METADATA_PKG}}.BuildDate={{.BUILD_DATE}}'
-  GCFLAGS: '{{if .DEBUG}}-N -l{{end}}'
-  PREFIX: '{{.PREFIX | default "/usr/local"}}'
+  PREFIX: /usr/local
   BINDIR: '{{.DESTDIR}}{{.PREFIX}}/bin'
+
 tasks:
   default:
-    desc: Run the standard development pipeline (tidy, lint, Build)
+    desc: Run the standard development pipeline (tidy, format, lint, test, build)
     cmds:
       - task: tidy
+      - task: fmt
       - task: lint
+      - task: test
       - task: build:all
+
   tidy:
-    desc: Run go mod tidy
+    desc: Run go mod tidy and verify the module
     cmds:
       - go mod tidy
       - go mod verify
+
   prepare:
-    desc: Prepare the environment for development
+    desc: Download the modules required to build the project
     internal: true
     run: once
     cmds:
       - go mod download
-  lint:
-    desc: Run golangci-lint analysis
+
+  fmt:
+    desc: Format the code with gofumpt, gci, goimports and golines
     cmds:
-      - task: lint:license
+      - golangci-lint fmt
+
+  fmt:check:
+    desc: Check formatting without modifying files
+    cmds:
+      - golangci-lint fmt --diff
+
+  lint:
+    desc: Run golangci-lint analysis and apply fixes
+    cmds:
       - golangci-lint run --fix
+
   lint:ci:
     desc: Run golangci-lint analysis without fixes (CI only)
     cmds:
-      - task: lint:license
       - golangci-lint run --timeout=5m
+
   lint:license:
     desc: Verify REUSE license compliance
     cmds:
       - reuse lint
+
+  lint:actions:
+    desc: Lint GitHub Actions workflow files
+    cmds:
+      - go tool actionlint
+
+  vuln:
+    desc: Scan dependencies and the standard library for known vulnerabilities
+    cmds:
+      - go tool govulncheck ./...
+
   generate:
-    desc: Safe code generation (disables GOWORK to prevent mod file corruption)
+    desc: Run go generate and re-tidy the module
     deps: [prepare]
     cmds:
-      - env GOWORK=off go generate -v -x ./...
+      - env GOWORK=off go generate -v ./...
       - task: tidy
+
   build:all:
     desc: Build all applications found in the cmd/ directory
     vars:
       APPS:
-        sh: find cmd -maxdepth 1 -mindepth 1 -type d -exec basename {} \;
-      cmds:
-        - for: { var: APPS }
-          task: build
-          vars: { CLI_ARGS: '{{.ITEM}}' }
+        sh: find cmd -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null
+    cmds:
+      - for: { var: APPS }
+        task: build
+        vars: { CLI_ARGS: '{{.ITEM}}' }
+
   build:
     desc: 'Build a specific application (Usage: task build -- <appname>)'
+    label: 'build:{{.APP_NAME}}'
     summary: |
       Builds the Go binary for a specific application in the cmd/ directory.
-      If no appname is provided, it defaults to the PROJECT_NAME.
-    deps: [generate]
+      If no appname is provided, the first directory found in cmd/ is used.
+      Versions and metadata are injected through -ldflags.
     vars:
-      APP_NAME: '{{.CLI_ARGS | default .PROJECT_NAME}}'
+      APP_NAME: '{{.CLI_ARGS | default .DEFAULT_APP}}'
       TARGET_PATH: './cmd/{{.APP_NAME}}'
     preconditions:
+      - sh: test -n "{{.APP_NAME}}"
+        msg: 'Error: no application found in cmd/. Create one first.'
       - sh: test -d {{.TARGET_PATH}}
         msg: 'Error: Directory {{.TARGET_PATH}} does not exist.'
+    env:
+      CGO_ENABLED: '0'
     cmds:
       - echo ">>> Building {{.APP_NAME}}..."
       - >-
         go build {{.GO_BUILD_FLAGS}}
-        -gcflags="{{.GCFLAGS}}"
-        -ldflags "{{.LDFLAGS}} -X '{{.METADATA_PKG}}.AppName=$APP_NAME'"
+        {{if .DEBUG}}-gcflags="all=-N -l"{{end}}
+        -ldflags "{{if not .DEBUG}}-s -w {{end}}-X '{{.METADATA_PKG}}.AppName={{.APP_NAME}}' {{.LDFLAGS}}"
         -o bin/{{.APP_NAME}} {{.TARGET_PATH}}
     sources:
       - 'cmd/{{.APP_NAME}}/**/*.go'
       - 'internal/**/*.go'
-      - 'pkg/**/*.go'
-      - 'go.mod'
-      - 'go.sum'
+      - go.mod
+      - go.sum
+      - Taskfile.yaml
+      - exclude: '**/*_test.go'
     generates:
       - 'bin/{{.APP_NAME}}'
+
   test:
-    desc: Run all tests with race detection and coverage
-    cmds:
-      - go test -v -shuffle=on -timeout=2m ./...
-  test:race:
-    desc: Run all tests with race detection
-    cmds:
-      - go test -v -race -shuffle=on -timeout=5m -coverprofile=coverage.txt -covermode=atomic ./...
-  test:memory:
-    desc: Run all tests with memory sanitizer
-    vars:
-      CC: clang
-    env: { CGO_ENABLED: 1 }
-    cmds:
-      - echo "Running Address Sanitizer (ASan)..."
-      - go test -v -asan ./...
-      - echo "Running Memory Sanitizer (MSan)..."
-      - go test -v -msan ./...
-  test:all:
     desc: Run all tests
+    cmds:
+      - go test -shuffle=on -timeout=2m ./...
+
+  test:race:
+    desc: Run all tests with the race detector and collect coverage
+    cmds:
+      - >-
+        go test -race -shuffle=on -timeout=5m -count=1
+        -coverpkg=./... -covermode=atomic -coverprofile=coverage.txt ./...
+
+  test:asan:
+    desc: Run all tests with AddressSanitizer (linux/amd64, cgo + clang)
+    platforms: [linux/amd64]
+    env:
+      CGO_ENABLED: '1'
+      CC: clang
+    cmds:
+      - go test -asan -count=1 ./...
+
+  test:msan:
+    desc: Run all tests with MemorySanitizer (linux/amd64, cgo + clang)
+    platforms: [linux/amd64]
+    env:
+      CGO_ENABLED: '1'
+      CC: clang
+    cmds:
+      - go test -msan -count=1 ./...
+
+  test:memory:
+    desc: Run all tests under ASan and MSan
+    cmds:
+      - task: test:asan
+      - task: test:msan
+
+  test:all:
+    desc: Run the full test matrix (unit, race, sanitizers)
     cmds:
       - task: test
       - task: test:race
       - task: test:memory
+
+  verify:
+    desc: Run the pre-merge gate (lint, format, workflow lint, race tests, vulnerability scan)
+    cmds:
+      - task: lint:ci
+      - task: fmt:check
+      - task: lint:actions
+      - task: test:race
+      - task: vuln
+
   install:
     desc: Install all built binaries to the system
+    preconditions:
+      - sh: test -d bin
+        msg: 'Error: bin/ does not exist. Run "task build:all" first.'
     cmds:
       - install -d "{{.BINDIR}}"
-      - |
-        find bin/ -maxdepth 1 -type f -exec install -m 755 {} "{{.BINDIR}}/" \;
+      - find bin/ -maxdepth 1 -type f -exec install -m 755 {} "{{.BINDIR}}/" \;
+
   clean:
-    desc: Cleanup build artifacts and test cache
+    desc: Cleanup build artifacts, test cache and Task fingerprints
     cmds:
-      - rm -rf bin/
+      - rm -rf bin/ dist/ coverage.txt .task/
       - go clean -testcache
-      - go clean -v
+
   distclean:
     desc: Cleanup all caches
+    prompt: 'This will remove the Go build and module caches. Continue?'
     cmds:
       - task: clean
       - go clean -cache

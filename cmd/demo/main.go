@@ -2,8 +2,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,24 +14,36 @@ import (
 )
 
 func main() {
-	verPtr := flag.Bool("v", false, "print version and exit")
+	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
 
-	if *verPtr {
-		fmt.Printf("%s", metadata.String())
-		os.Exit(0)
+	if *showVersion {
+		fmt.Println(metadata.String())
+
+		return
 	}
 
-	fmt.Printf("Starting %s...\n", metadata.AppName)
+	if err := run(context.Background()); err != nil {
+		slog.Error("application failed", "error", err)
+		os.Exit(1)
+	}
+}
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
+// run starts the application and blocks until the context is canceled by
+// SIGINT or SIGTERM. Cleanup registered with defer runs before returning.
+func run(ctx context.Context) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	go func() {
-		sig := <-done
-		fmt.Printf("\nReceived signal: %v. Shutting down...\n", sig)
-		os.Exit(0)
-	}()
+	slog.Info("starting",
+		"app", metadata.AppName,
+		"version", metadata.Version,
+		"commit", metadata.Commit,
+	)
 
-	select {}
+	<-ctx.Done()
+
+	slog.Info("shutting down", "reason", context.Cause(ctx))
+
+	return nil
 }

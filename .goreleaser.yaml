@@ -1,61 +1,91 @@
 version: 2
-project_name: '{{ .ProjectName }}'
 
-# if project have multiple binaries, you can configure them here
+before:
+  hooks:
+    - go mod tidy
+
 builds:
   - id: default
-    main: ./cmd/{{ .ProjectName }}
+    # NOTE: `main` is a plain path, it is NOT templated. Update it (or add
+    # another build entry) when you add a new application under cmd/.
+    main: ./cmd/demo
     binary: '{{ .ProjectName }}'
-    env: &build_defaults_env
-      - CGO_ENABLED=0 # default to disabled CGO
-    goos: &build_defaults_os
+    env:
+      - CGO_ENABLED=0
+    goos:
       - linux
-    goarch: &build_defaults_arch
+    goarch:
       - amd64
       - arm64
       - riscv64
-    goamd64: &build_defaults_amd64
-      - v3
-      - v4
-    goarm64: &build_defaults_arm64
-      - v8.0
-      - v9.0
-    flags: &build_defaults_flags
-      - -v
+    flags:
       - -trimpath
-      - -buildmode=pie
-    ldflags: &build_defaults_ldflags
-      - -s
-      - -w
-      - -X {{ .ModulePath }}/internal/metadata.AppName={{ .ID }}
+    ldflags:
+      - -s -w
+      - -X {{ .ModulePath }}/internal/metadata.AppName={{ .ProjectName }}
       - -X {{ .ModulePath }}/internal/metadata.Version=v{{ .Version }}
       - -X {{ .ModulePath }}/internal/metadata.Commit={{ .FullCommit }}
-      - -X {{ .ModulePath }}/internal/metadata.BuildDate={{ .Date }}
+    # File mtime comes from the commit, not from the build time.
+    mod_timestamp: '{{ .CommitTimestamp }}'
 
 archives:
-  - formats: ['tar.gz']
+  - id: default
+    formats: ['tar.gz']
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    wrap_in_directory: true
     files:
-      - LICENSE*
-      - README*
-      - configs/*
-      - init/*
+      - LICENSES/*
+      - README.md
+      - CHANGELOG.md
+    builds_info:
+      # Archive member mtime comes from the commit.
+      mtime: '{{ .CommitDate }}'
+
+source:
+  enabled: true
 
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
 
-changelog:
-  sort: asc
-
 sboms:
   - artifacts: archive
-    documents:
-      - '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.spdx.json'
+  - id: source
+    artifacts: source
+
+# Keyless signing of the checksum file with Sigstore. Because every artifact
+# (archives, source tarball, SBOMs) is listed in checksums.txt, signing that one
+# file covers them all.
+signs:
+  - cmd: cosign
+    signature: '${artifact}.sigstore.json'
+    args:
+      - sign-blob
+      - '--bundle=${signature}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^style:'
+      - '^chore'
+      - '^build\(deps\)'
 
 release:
-  github:
-    owner: '{{ .Env.GITHUB_REPOSITORY_OWNER }}'
-    name: '{{ .ProjectName }}'
-  draft: false
+  # Owner and repository name are inferred from the git remote.
+  #
+  # Draft first: enable "release immutability" in the repository, review the
+  # attached assets, then publish manually. Once published, the tag and assets
+  # cannot be changed or reused.
+  draft: true
+  # One tag means one release: never replace or silently reuse an existing draft.
+  replace_existing_draft: false
+  use_existing_draft: false
   prerelease: auto

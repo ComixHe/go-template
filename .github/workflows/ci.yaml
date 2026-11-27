@@ -1,68 +1,116 @@
 name: Continuous integration
 
+# Actions are pinned to full commit SHAs for supply-chain safety.
+# Dependabot updates both the SHA and the trailing version comment.
+
 on:
   push:
+    branches: ['main']
   pull_request:
     branches: ['main']
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOTOOLCHAIN: local
+
 jobs:
   compliance:
-    name: License Compliance
+    name: License compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install reuse
+        run: pipx install 'reuse[charset-normalizer]==6.2.0'
+      - name: REUSE compliance check
+        run: ~/.local/bin/reuse lint
 
   lint:
-    name: Lint & Security
+    name: Lint & security
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
+      contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: 'stable'
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
           cache: true
+      - name: Run actionlint
+        run: go tool actionlint
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: >-
             --output.text.path=stdout
             --output.sarif.path=results.sarif
-          only-new-issues: true
       - name: Upload SARIF report
-        uses: github/codeql-action/upload-sarif@v4
         if: always()
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           sarif_file: results.sarif
 
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+
   pipeline:
-    name: Pipeline on Ubuntu
+    name: Test & build
     needs: [compliance, lint]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Set up Go
-        uses: actions/setup-go@v6
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
           cache: true
       - name: Install Task
-        uses: arduino/setup-task@v2
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
+          version: 3.54.0
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run Tests
+      - name: Run tests
         run: task test:race
-      - name: Upload Coverage to codecov
-        uses: codecov/codecov-action@v5
+      - name: Run govulncheck
+        run: task vuln
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          file: ./coverage.txt
+          files: ./coverage.txt
+          # Flip to true once Codecov is configured for the repository.
+          fail_ci_if_error: false
           verbose: true
-          # token: ${{ secrets.CODECOV_TOKEN }} # required for private repos
-      - name: Build All Binaries
-        run: task build:all
+      - name: Build release targets
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.20.3
+          args: build --snapshot --clean
